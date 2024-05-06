@@ -1,0 +1,12 @@
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/dmzyyh/DICOM0/PA1/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/dmzyyh/DICOM1/PA6/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/dml/PA17/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/dml/PA4/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/dml/PA23/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/xz/PA12/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/jc/PA12/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/jc/PA5/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/jc/PA1/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/dis/qdxz/PA4/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/nor/PA0/SE0/0.nii.gz
+/root/autodl-tmp/yml/data/p2_nii/external/hnnk/nor/PA1/SE0/0.nii.gz
