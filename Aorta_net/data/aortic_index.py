@@ -18,6 +18,8 @@ import openpyxl
 from sklearn.metrics import confusion_matrix
 import pandas as pd
 from scipy.ndimage import label, generate_binary_structure
+# 设置打印选项，使得所有数组都以小数形式输出，且设置小数点后保留的位数
+np.set_printoptions(suppress=True, precision=8)  # suppress=True 禁用科学记数法，precision设置小数点后的位数
 
 #remain the bigest Connected region
 def remove_regions(mask):
@@ -71,6 +73,30 @@ def remove_small_volums(mask):
     # 返回处理后的mask
     cleaned_segmentation = cleaned_segmentation * mask
     return cleaned_segmentation.astype(np.int16)
+
+def my_mape1(y_true, y_pred):
+    non_zero_mask = np.nonzero(y_true)
+    non_zero_maskk=np.nonzero(y_pred)## 找出y_pred中为非0的位置，避免直接除以0
+    with np.errstate(invalid='ignore'):
+        relative_errors_non_zero = np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask]) * 100.0
+    relative_errors = np.zeros_like(y_true)  # 初始化一个全nan组
+    relative_errors[non_zero_maskk]=100#
+    relative_errors[non_zero_mask] = relative_errors_non_zero  # 填充非零位置的计算结果
+    errors=np.clip(relative_errors, 0, 100)#Winsorization（温索化处理）边界处理方法
+    merged_indices = np.nonzero(relative_errors)
+    return errors,merged_indices
+
+def my_mape(y_true, y_pred):
+    if y_true==0 and y_pred!=0:
+        error=100
+    elif y_pred==0 and y_true!=0:
+        error=0
+    elif y_pred==0 and y_true==0:
+        error=0
+    else:
+        error = np.abs((y_true - y_pred) / y_true) * 100.0
+        error = np.clip(error, 0, 100)
+    return error
 
 # def remove_ascend(image_stack):
 #     # 定义结构元素用于确定连通性（这里假定是8邻域）
@@ -335,14 +361,14 @@ def compute_ccc(x, y,rho):
                 var_x + var_y + (mean_x - mean_y) ** 2)
     return ccc
 
-def metric(mea,gd):
+def metric1(mea,gd):
     measurement_values = np.nan_to_num(mea)  # 将NaN替换为0，Inf替换为最大或最小浮点数
     groundtruth_values = np.nan_to_num(gd)
     mae = mean_absolute_error(groundtruth_values, measurement_values)# 计算MAE
+    mre=my_mape(np.nanmean(groundtruth_values), np.nanmean(measurement_values))
     if mae==0:
         pearson_corr=1
         ccc=1
-        mape=1
     else:
         # variance = np.var(measurement_values - groundtruth_values)# 计算方差
         # mape=mean_absolute_percentage_error(groundtruth_values, measurement_values)
@@ -361,7 +387,50 @@ def metric(mea,gd):
     # print("Pearson Correlation Coefficient: ", pearson_corr)
     # print("CCC: ", ccc)
     # print("\b")
-    return mae,pearson_corr,ccc
+    return mae,mre,pearson_corr,ccc
+
+def metric(diameter_per_total,mea,gd):
+    #The distal abdominal aorta (i.e., the portion near the bifurcation that divides the right and left iliac arteries)
+    # has a diameter of approximately 1.5 cm to 2.0 cm (or 15 mm to 20 mm)
+    threshold = 15 #approximate 10 mm
+    above_threshold = diameter_per_total > threshold
+    greater_indices = np.where(above_threshold)[0]
+    if greater_indices.size > 0:
+        start_index = greater_indices[0]
+        end_index = greater_indices[-1] + 1  # 注意这里需要加1，因为end_index是要包含在内的
+
+        mea=mea[start_index:end_index]
+        gd=gd[start_index:end_index]
+        measurement_values = np.nan_to_num(mea)  # 将NaN替换为0，Inf替换为最大或最小浮点数
+        groundtruth_values = np.nan_to_num(gd)
+        mae = mean_absolute_error(groundtruth_values, measurement_values)# 计算MAE
+        # mapes,_=my_mape1(groundtruth_values, measurement_values)
+        # mape=np.mean(mapes[start_index:end_index])
+        mape=my_mape(np.nanmean(gd),np.nanmean(mea))
+        if mae==0:
+            pearson_corr=1
+            ccc=1
+        else:
+            # variance = np.var(measurement_values - groundtruth_values)# 计算方差
+            # mape=mean_absolute_percentage_error(groundtruth_values, measurement_values)
+            # r2=r2_score(measurement_values, groundtruth_values)
+            if np.all(measurement_values[0] == measurement_values) and np.all(groundtruth_values[0] == groundtruth_values):
+                pearson_corr=1
+            else:
+                if np.all(measurement_values[0] == measurement_values):
+                    measurement_values=np.where(groundtruth_values>0,1,0)*1e-8
+                elif np.all(groundtruth_values[0] == groundtruth_values):
+                    groundtruth_values=np.where(measurement_values>0,1,0)*1e-8
+                pearson_corr, _ = pearsonr(measurement_values, groundtruth_values)# 计算Pearson相关系数
+            ccc = compute_ccc(groundtruth_values, measurement_values,pearson_corr)#不达预期
+
+        # print("MAE: ", mae)
+        # print("Pearson Correlation Coefficient: ", pearson_corr)
+        # print("CCC: ", ccc)
+        # print("\b")
+        return mae,mape,pearson_corr,ccc
+    else:
+        return 0,0,0,0
 
 def calcium_alert_index(diameter_per_lumen, calcium_per_index_mea, calcium_per_index):
     # 指定一个阈值
@@ -414,7 +483,7 @@ def calcium_alert_index(diameter_per_lumen, calcium_per_index_mea, calcium_per_i
 def statis():
     data = openpyxl.load_workbook('demo1.xlsx')
     table = data.active
-    path = "/media/bit301/data/yml/data/p2_nii/Aortic_index/lz/"
+    path = "/media/bit301/data/yml/data/p2_nii/Aortic_index/cq/"
     save_name=path.split("/")[-2]
     path_list = []
     for root, dirs, files in os.walk(path, topdown=False):
@@ -448,9 +517,9 @@ def statis():
             print(path+"_gd")
         elif np.all(diameter_per_total == 0):
             print(path+"_mea")
-        lumnen = metric(diameter_per_lumen_mea, diameter_per_lumen)
-        total = metric(diameter_per_total_mea, diameter_per_total)
-        calcium = metric(calcium_per_index_mea, calcium_per_index)
+        lumnen = metric(diameter_per_total,diameter_per_lumen_mea, diameter_per_lumen)
+        total = metric(diameter_per_total,diameter_per_total_mea, diameter_per_total)
+        calcium = metric(diameter_per_total,calcium_per_index_mea, calcium_per_index)
         lumenn.append(lumnen)
         totall.append(total)
         calciumm.append(calcium)
@@ -561,7 +630,7 @@ def disp1():
         # 显式关闭当前figure
         plt.close(fig)
 
-def per_mean(diameter_per_lumen, calcium_per_index,calcium_per_index_mea):
+def per_mean1(diameter_per_lumen, calcium_per_index,calcium_per_index_mea):
     arr1 = calcium_per_index
     arr2 = calcium_per_index_mea
     merged_indices = np.nonzero(arr1 + arr2)
@@ -574,44 +643,50 @@ def per_mean(diameter_per_lumen, calcium_per_index,calcium_per_index_mea):
     else:
         return 0, 0
 
-    # threshold =15
-    # above_threshold = diameter_per_lumen > threshold
-    # greater_indices = np.where(above_threshold)[0]
-    # if greater_indices.size > 0:
-    #     start_index = greater_indices[0]
-    #     end_index = greater_indices[-1] + 1  # 注意这里需要加1，因为end_index是要包含在内的
-    #     arr1=calcium_per_index[start_index:end_index]
-    #     arr2 = calcium_per_index_mea[start_index:end_index]
-    #     merged_indices = np.nonzero(arr1+arr2)
-    #     if len(merged_indices):
-    #         non_zero_values1 = arr1[merged_indices]
-    #         m1 = np.mean(non_zero_values1)#像钙化指数  groundtruth或reconstruction存在0/0，则会出现警告
-    #         non_zero_values2 = arr2[merged_indices]
-    #         m2 = np.mean(non_zero_values2)
-    #         return m1,m2
-    #     else:
-    #         return 0, 0
-    # else:
-    #     return 0,0
+def per_mean(diameter_per_lumen, calcium_per_index, calcium_per_index_mea):
+    threshold =15
+    above_threshold = diameter_per_lumen > threshold
+    greater_indices = np.where(above_threshold)[0]
+    if greater_indices.size > 0:
+        start_index = greater_indices[0]
+        end_index = greater_indices[-1] + 1  # 注意这里需要加1，因为end_index是要包含在内的
+        calcium_per_index_mea[:start_index] = 0
+        calcium_per_index_mea[end_index:] = 0
+        calcium_per_index[:start_index] = 0
+        calcium_per_index[end_index:] = 0
+        arr1=calcium_per_index
+        arr2=calcium_per_index_mea
+        # mapes,merged_indices=my_mape1(arr1, arr2)
+        # mape = np.mean(mapes[start_index:end_index])
+        m1 = np.mean(arr2[start_index:end_index])  # 像钙化指数  groundtruth或reconstruction存在0/0，则会出现警告
+        m2 = np.mean(arr1[start_index:end_index])
+        mape=my_mape(m2, m1)
+        return m1, m2,mape
+    else:
+        return 0, 0
+
 
 def dot_plot(data,save_path):
     gd="True "+save_path.split("_")[-1]
     mea="Predict "+save_path.split("_")[-1]+" from NCCT"
     save_path=save_path+".tif"
     data=np.array(data)
+    # true_values = data[:, 0]  # 请替换为实际真实值数组
+    # predicted_values = data[:, 1]
+    # errors = np.abs(predicted_values - true_values)
     true_values = data[:, 0]  # 请替换为实际真实值数组
     predicted_values = data[:, 1]
-    errors = np.abs(predicted_values - true_values)
+    errors = data[:, 2]
     fig, ax = plt.subplots()
     scatter = ax.scatter(true_values, predicted_values, c=errors, cmap='viridis', s=20, alpha=0.8)
-    cbar = fig.colorbar(scatter, ax=ax, label='Absolute Error')
+    cbar = fig.colorbar(scatter, ax=ax, label='Mean Absolute Percentage Error (%)')
     plt.plot([np.nanmin(true_values), np.nanmax(true_values)],
              [np.nanmin(true_values), np.nanmax(true_values)],
              'r--', label='Perfect reconstruction line')
     ax.set_xlabel(gd, fontsize=10)
     ax.set_ylabel(mea, fontsize=10)
     plt.legend()
-    ax.set_title('Predict vs True with Absolute Error', fontsize=10)
+    ax.set_title('Predict vs True with Mean Absolute Percentage Error', fontsize=10)
     # plt.savefig(save_path)  # 矢量图
     plt.savefig(save_path, dpi=600)
     # plt.show()
@@ -619,7 +694,7 @@ def dot_plot(data,save_path):
 
 #Bland-Altman，
 def disp2():
-    path = "/media/bit301/data/yml/data/p2_nii/Aortic_index/"#
+    path = "/media/bit301/data/yml/data/p2_nii/Aortic_index/cq/"#
     save_name=path.split("/")[-2]
     path_list = []
     for root, dirs, files in os.walk(path, topdown=False):
@@ -667,5 +742,5 @@ def disp2():
 if __name__ == '__main__':
     # Aortic_index_caculate()
     # statis()
-    disp1()
-    # disp2()
+    # disp1()
+    disp2()
